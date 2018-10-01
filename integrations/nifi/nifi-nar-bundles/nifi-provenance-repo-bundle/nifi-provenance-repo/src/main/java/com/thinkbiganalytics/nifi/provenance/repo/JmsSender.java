@@ -76,6 +76,10 @@ public class JmsSender {
                 ProvenanceEventRecordDTOHolder eventRecordDTOHolder = new ProvenanceEventRecordDTOHolder();
                 eventRecordDTOHolder.setEvents(eventsToSend);
                 getProvenanceEventActiveMqWriter().writeBatchEvents(eventRecordDTOHolder);
+                for (final ProvenanceEventRecordDTO e : eventsToSend) {
+                    log.info("LOGGING EVENTS JMS");
+                    log.info(e.toString());
+                }
             }
 
             if (statsToSend != null && !statsToSend.isEmpty()) {

@@ -23,7 +23,7 @@ package com.thinkbiganalytics.jms;
 /**
  * Created by ru186002 on 21/07/2017.
  */
-public interface Queues {
+public interface QueuesMod {
 
     String FEED_MANAGER_QUEUE = "thinkbig.feed-manager";
     String PROVENANCE_EVENT_STATS_QUEUE = "thinkbig.provenance-event-stats";
@@ -31,4 +31,3 @@ public interface Queues {
     String FEED_MANAGER_QUEUE2 = "thinkbig.feed-manager2";
     String PROVENANCE_EVENT_STATS_QUEUE2 = "thinkbig.provenance-event-stats2";
 }
-

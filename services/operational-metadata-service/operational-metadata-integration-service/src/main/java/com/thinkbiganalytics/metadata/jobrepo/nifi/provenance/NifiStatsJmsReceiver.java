@@ -28,7 +28,7 @@ import com.thinkbiganalytics.cluster.ClusterMessage;
 import com.thinkbiganalytics.cluster.ClusterService;
 import com.thinkbiganalytics.cluster.ClusterServiceMessageReceiver;
 import com.thinkbiganalytics.jms.JmsConstants;
-import com.thinkbiganalytics.jms.Queues;
+import com.thinkbiganalytics.jms.QueuesMod;
 import com.thinkbiganalytics.metadata.api.MetadataAccess;
 import com.thinkbiganalytics.metadata.api.feed.OpsManagerFeed;
 import com.thinkbiganalytics.metadata.api.jobrepo.job.BatchJobExecutionProvider;
@@ -81,6 +81,23 @@ import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
 import javax.inject.Inject;
+
+import org.springframework.util.ResourceUtils;
+import com.thinkbiganalytics.nifi.provenance.model.stats.AggregatedFeedProcessorStatisticsHolder;
+import org.apache.activemq.ActiveMQConnectionFactory;
+import java.io.Serializable;
+import javax.jms.Connection;
+import javax.jms.DeliveryMode;
+import javax.jms.Destination;
+import javax.jms.Message;
+import javax.jms.MessageProducer;
+import javax.jms.Session;
+import com.thinkbiganalytics.nifi.provenance.model.util.GroupedStatsUtil;
+import org.json.*;
+import javax.json.*;
+import java.net.*;
+import java.io.*;
+import java.util.Arrays;
 
 /**
  */
@@ -160,6 +177,9 @@ public class NifiStatsJmsReceiver implements ClusterServiceMessageReceiver {
     private Map<String, JpaNifiFeedStats> latestStatsCache = new ConcurrentHashMap<>();
 
 
+    private Connection connection;
+    private Session session;
+    private MessageProducer producer;
     /**
      * Schedule the compaction job in Quartz if the properties have this enabled with a Cron Expression
      */
@@ -249,7 +269,7 @@ public class NifiStatsJmsReceiver implements ClusterServiceMessageReceiver {
         return !(stats instanceof RetryAggregatedFeedProcessorStatisticsHolder) || (stats instanceof RetryAggregatedFeedProcessorStatisticsHolder
                                                                                     && ((RetryAggregatedFeedProcessorStatisticsHolder) stats).shouldRetry());
     }
-    @JmsListener(id = JMS_LISTENER_ID2, destination = Queues.PROVENANCE_EVENT_STATS_QUEUE2, containerFactory = JmsConstants.QUEUE_LISTENER_CONTAINER_FACTORY)
+    @JmsListener(id = JMS_LISTENER_ID2, destination = QueuesMod.PROVENANCE_EVENT_STATS_QUEUE2, containerFactory = JmsConstants.QUEUE_LISTENER_CONTAINER_FACTORY)
     public void receiveTopic(byte[] stats) {
         Object o = null;
         try {
@@ -262,11 +282,19 @@ public class NifiStatsJmsReceiver implements ClusterServiceMessageReceiver {
         }
     }
 
-    @JmsListener(id = JMS_LISTENER_ID, destination = Queues.PROVENANCE_EVENT_STATS_QUEUE, containerFactory = JmsConstants.QUEUE_LISTENER_CONTAINER_FACTORY)
+    @JmsListener(id = JMS_LISTENER_ID, destination = QueuesMod.PROVENANCE_EVENT_STATS_QUEUE, containerFactory = JmsConstants.QUEUE_LISTENER_CONTAINER_FACTORY)
     public void receiveTopic(AggregatedFeedProcessorStatisticsHolder stats) {
-        if (readyToProcess(stats)) {
 
-            if (ensureValidRetryAttempt(stats)) {
+        // multiplexStats(stats);
+        
+        stats.getFeedStatistics().values().stream().forEach(feedProcessorStats -> {
+            log.info("TENANTS Print Stats " + feedProcessorStats.toString());
+        });
+        
+
+        if (readyToProcess(stats)) {
+            multiplexStats(stats);
+            if (false /*ensureValidRetryAttempt(stats)*/) {
                 final List<AggregatedFeedProcessorStatistics> unregisteredEvents = new ArrayList<>();
                 metadataAccess.commit(() -> {
                     List<NifiFeedProcessorStats> summaryStats = createSummaryStats(stats, unregisteredEvents);
@@ -305,6 +333,168 @@ public class NifiStatsJmsReceiver implements ClusterServiceMessageReceiver {
             throw new JmsProcessingException("Unable to process Statistics Events.  NiFi is either not up, or there is an error trying to populate the Kylo NiFi Flow Cache. ");
         }
 
+    }
+
+    private void multiplexStats(AggregatedFeedProcessorStatisticsHolder e) {
+    //private void multiplexStats(AggregatedFeedProcessorStatistics e) {
+        log.info("DEV  - LOGGING STATS JMS    ");
+        log.info(e.toString());  
+
+        boolean proceed = true;
+        
+        List<String> processorA = new ArrayList<>();
+        List<String> processorB = new ArrayList<>();
+
+        BufferedReader br = null;
+        FileReader fr = null;
+        BufferedReader br1 = null;
+        FileReader fr1 = null;
+        try {
+
+            fr = new FileReader("/opt/json/usera.txt");
+            br = new BufferedReader(fr);
+            String sCurrentLine;
+            while ((sCurrentLine = br.readLine()) != null) {
+                // System.out.println(sCurrentLine);
+                processorA.add(sCurrentLine);
+            }
+            } catch (IOException e2) {
+
+                e2.printStackTrace();
+                log.info(e2.toString());
+                proceed = false;
+            } finally {
+
+            try {
+
+                if (br != null)
+                    br.close();
+
+                if (fr != null)
+                    fr.close();
+
+            } catch (IOException ex2) {
+
+                ex2.printStackTrace();
+                log.info(ex2.toString());
+                proceed = false;
+            }
+
+        }
+
+        try {
+
+            fr1 = new FileReader("/opt/json/userb.txt");
+            br1 = new BufferedReader(fr1);
+            String sCurrentLine1;
+            while ((sCurrentLine1 = br1.readLine()) != null) {
+                // System.out.println(sCurrentLine);
+                processorB.add(sCurrentLine1);
+            }
+        } catch (IOException e1) {
+
+            e1.printStackTrace();
+            log.info(e1.toString());
+            proceed = false;
+
+        } finally {
+
+            try {
+
+                if (br1 != null)
+                    br1.close();
+
+                if (fr1 != null)
+                    fr1.close();
+
+            } catch (IOException ex1) {
+
+                ex1.printStackTrace();
+                log.info(ex1.toString());
+                proceed = false;
+            }
+
+        }
+
+            String KYLO_PROVENANCE_EVENT_STATS_QUEUE = "thinkbig.provenance-event-stats-a";
+            /*
+            if (processorA.contains(e.getStartingProcessorId())) {
+
+                log.info("These stats are from user A");
+                KYLO_PROVENANCE_EVENT_STATS_QUEUE = "thinkbig.provenance-event-stats-a";
+            } else if (processorB.contains(e.getStartingProcessorId())) {
+                log.info("These stats are from user B");
+                KYLO_PROVENANCE_EVENT_STATS_QUEUE = "thinkbig.provenance-event-stats-b";
+            } else {
+                proceed = false;
+                log.info("THIS STAT IS NOT FROM OUR TENANTS" + e.toString());
+            }
+            */
+
+            if (proceed) {
+                /*
+                // ProvenanceEventRecordDTOHolder eventRecordDTOHolder = new ProvenanceEventRecordDTOHolder();
+                AggregatedFeedProcessorStatisticsHolder statDTOHolder = new AggregatedFeedProcessorStatisticsHolder();
+                // List<AggregatedFeedProcessorStatistics> batchEvents = new ArrayList<>();
+                List<AggregatedFeedProcessorStatistics> nifiFeedProcessorStatsList = new ArrayList<>();
+                nifiFeedProcessorStatsList.add(e);
+                // eventRecordDTOHolder.setEvents(batchEvents);
+                statDTOHolder.setFeedStatistics(nifiFeedProcessorStatsList);
+                // WRITE NEW QUEUE
+                */
+                String jmsUrl = "tcp://localhost:61616";
+
+                log.info("Sending {} STATS to NEW JMS ", e);
+                // AggregatedFeedProcessorStatisticsHolder stats = GroupedStatsUtil.gatherStats(batchEvents);
+                try {
+                    Connection connection2 = getOrCreateJmsConnection(jmsUrl);
+                    Session session2 = getOrCreateSession(connection2);
+                    MessageProducer producerStats = getOrCreateProducer(session2, KYLO_PROVENANCE_EVENT_STATS_QUEUE);
+                    Message mp = session2.createObjectMessage(e);
+                    producerStats.send(mp);
+                } catch (Exception ex) {
+                    log.info("ERROR sending STATS to NEW JMS");
+                    log.info(ex.toString());
+                    ex.printStackTrace();
+                }
+                
+                log.info("Events and Stats successfully sent to NEW JMS");
+        }
+    }
+
+    private Connection getOrCreateJmsConnection(String url) throws Exception {
+        if(connection == null) {
+            // Create a ConnectionFactory
+            ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(url);
+
+            // Create a Connection
+            Connection connection = connectionFactory.createConnection();
+            connection.start();
+            this.connection = connection;
+        }
+        return connection;
+    }
+
+    private Session getOrCreateSession(Connection connection) throws Exception {
+        if(session == null) {
+            // Create a Session
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            this.session = session;
+        }
+        return session;
+    }
+
+
+    private MessageProducer getOrCreateProducer(Session session, String queueName) throws Exception{
+
+        if(producer == null) {
+            // Create the destination (Topic or Queue)
+            Destination destination = session.createQueue(queueName);
+            MessageProducer producer = session.createProducer(destination);
+            producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
+            this.producer = producer;
+        }
+        return producer;
     }
 
 

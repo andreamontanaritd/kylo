@@ -66,6 +66,11 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.security.cert.X509Certificate;
+import javax.ws.rs.core.HttpHeaders;
+
 /**
  * Generic JerseyRestClient
  */
@@ -108,6 +113,11 @@ public class JerseyRestClient {
      */
     private boolean useConnectionPooling = false;
 
+
+    private final String USR_USERNAME = "administrator";
+    private final String USR_PASSWORD = "password";
+    private final String USR_PROCESS_GROUP_ID = "61634ac2-0165-1000-4579-b394588f7d9b";
+    private final String USR_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbmlzdHJhdG9yQEtZTE8uSU8iLCJpc3MiOiJLZXJiZXJvc1Byb3ZpZGVyIiwiYXVkIjoiS2VyYmVyb3NQcm92aWRlciIsInByZWZlcnJlZF91c2VybmFtZSI6ImFkbWluaXN0cmF0b3JAS1lMTy5JTyIsImtpZCI6MywiZXhwIjoxNTM1NzU4OTU1LCJpYXQiOjE1MzU3MTU3NTV9.JScS-tXoHNlYGyKw0tUwVzVbTcClO9hTI8_6RbW2vTk";
 
     public JerseyRestClient(JerseyClientConfig config) {
         useConnectionPooling = config.isUseConnectionPooling();
@@ -163,10 +173,29 @@ public class JerseyRestClient {
             try {
                 sslContext = sslConfig.createSSLContext();
             } catch (Exception e) {
-                log.error("ERROR creating CLient SSL Context.  " + e.getMessage() + " Falling back to Jersey Client without SSL.  Rest Integration with '" + config.getUrl()
-                        + "'  will probably not work until this is fixed!");
+                log.error("ERROR creating CLient SSL Context.  " + e.getMessage() + " Falling back to Jersey Client without SSL.  Rest Integration with " + config.getUrl() + "  will probably not work until this is fixed!");
             }
         }
+
+        TrustManager[] trustAllCerts = new TrustManager[] {
+                new X509TrustManager() {
+                    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                        return new X509Certificate[0];
+                    }
+                    public void checkClientTrusted(
+                            java.security.cert.X509Certificate[] certs, String authType) {
+                    }
+                    public void checkServerTrusted(
+                            java.security.cert.X509Certificate[] certs, String authType) {
+                    }
+                }
+        };
+        try {
+            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
+        } catch(Exception e) {
+            log.error("ERROR INIT SSL: " + e.getMessage());
+        }
+        
 
         ClientConfig clientConfig = new ClientConfig();
 
@@ -219,6 +248,8 @@ public class JerseyRestClient {
             log.info("Created new Jersey Client without SSL connecting to {} ", config.getUrl());
             client = JerseyClientBuilder.createClient(clientConfig);
         }
+
+        log.info("DEV: Client SSL is: " + client.toString());
 
         // Register Jackson for the internal mapper
         objectMapper = new JacksonObjectMapperProvider().getContext(null);
@@ -317,12 +348,15 @@ public class JerseyRestClient {
      * @return the target to use to make the REST request
      */
     private WebTarget buildTarget(String path, Map<String, Object> params) {
-        WebTarget target = getBaseTarget().path(path);
+        WebTarget target = getBaseTarget().path(path.replace("root", USR_PROCESS_GROUP_ID));
         if (params != null) {
             for (Map.Entry<String, Object> entry : params.entrySet()) {
                 target = target.queryParam(entry.getKey(), entry.getValue());
+                log.info("DEV: query param: " + entry.getKey() + ", " + entry.getValue());
             }
         }
+        log.info("DEV: Request web target is: " + target.toString());
+
         return target;
     }
 
@@ -358,7 +392,11 @@ public class JerseyRestClient {
      */
     public <T> Future<T> getAsync(String path, Map<String, Object> params, Class<T> clazz) {
         WebTarget target = buildTarget(path, params);
-        return target.request(MediaType.APPLICATION_JSON_TYPE).accept(MediaType.APPLICATION_JSON_TYPE).async().get(clazz);
+        return target.request(MediaType.APPLICATION_JSON_TYPE)
+        .accept(MediaType.APPLICATION_JSON_TYPE)
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .async()
+        .get(clazz);
     }
 
 
@@ -372,7 +410,11 @@ public class JerseyRestClient {
      */
     public <T> Future<T> getAsync(String path, Map<String, Object> params, GenericType<T> type) {
         WebTarget target = buildTarget(path, params);
-        return target.request(MediaType.APPLICATION_JSON_TYPE).accept(MediaType.APPLICATION_JSON_TYPE).async().get(type);
+        return target.request(MediaType.APPLICATION_JSON_TYPE)
+        .accept(MediaType.APPLICATION_JSON_TYPE)
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .async()
+        .get(type);
 
     }
 
@@ -413,7 +455,9 @@ public class JerseyRestClient {
         T obj = null;
 
         try {
-            obj = builder.accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE).get(clazz);
+            obj = builder.accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE)
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+            .get(clazz);
         } catch (Exception e) {
             if (e instanceof NotAcceptableException) {
                 obj = handleNotAcceptableGetRequestJsonException(builder, clazz);
@@ -436,7 +480,7 @@ public class JerseyRestClient {
      * @return the returned object of the specified Class
      */
     public <T> T get(WebTarget target, Class<T> clazz, boolean logError) {
-        return get(target.request(MediaType.APPLICATION_JSON_TYPE), clazz, logError);
+        return get(target.request(MediaType.APPLICATION_JSON_TYPE).header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN), clazz, logError);
     }
 
     /**
@@ -482,7 +526,8 @@ public class JerseyRestClient {
 
         Invocation.Builder builder = target.request(MediaType.APPLICATION_JSON_TYPE)
                 .headers(headers)
-                .accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE);
+                .accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN);
 
         return builder.get(clazz);
     }
@@ -502,7 +547,10 @@ public class JerseyRestClient {
         T obj = null;
 
         try {
-            obj = target.request(MediaType.APPLICATION_JSON_TYPE).accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE).get(clazz);
+            obj = target.request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE)
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+            .get(clazz);
         } catch (Exception e) {
             if (e instanceof NotAcceptableException) {
                 obj = handleNotAcceptableGetRequestJsonException(target, clazz);
@@ -530,7 +578,10 @@ public class JerseyRestClient {
         T obj = null;
         try {
 
-            obj = target.request(MediaType.APPLICATION_JSON_TYPE).accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE).get(clazz);
+            obj = target.request(MediaType.APPLICATION_JSON_TYPE)
+            .accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE)
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+            .get(clazz);
         } catch (Exception e) {
             if (e instanceof NotAcceptableException) {
                 obj = handleNotAcceptableGetRequestJsonException(target, clazz);
@@ -542,11 +593,14 @@ public class JerseyRestClient {
     }
 
     /**
-     * Makes a GET request and doesn't handle errors on purpose.
+     * Makes a GET request and doesn"t handle errors on purpose.
      */
     public <T> T get(String path, Class<T> clazz) {
         WebTarget target = getTargetFromPath(path);
-        return target.request(MediaType.APPLICATION_JSON_TYPE).accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE).get(clazz);
+        return target.request(MediaType.APPLICATION_JSON_TYPE)
+        .accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE)
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .get(clazz);
     }
 
 
@@ -573,7 +627,9 @@ public class JerseyRestClient {
      */
     public Response post(String path, Object o) {
         WebTarget target = buildTarget(path, null);
-        return target.request().post(Entity.entity(o, MediaType.APPLICATION_JSON_TYPE));
+        return target.request()
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .post(Entity.entity(o, MediaType.APPLICATION_JSON_TYPE));
     }
 
 
@@ -600,7 +656,9 @@ public class JerseyRestClient {
         WebTarget target = buildTarget(path, null);
         MediaType contentType = MediaType.MULTIPART_FORM_DATA_TYPE;
         contentType = Boundary.addBoundary(contentType);
-        return target.request().post(Entity.entity(object, contentType), returnType);
+        return target.request()
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .post(Entity.entity(object, contentType), returnType);
     }
 
     /**
@@ -621,7 +679,9 @@ public class JerseyRestClient {
         multiPart.getBodyParts().add(streamDataBodyPart);
         MediaType contentType = MediaType.MULTIPART_FORM_DATA_TYPE;
         contentType = Boundary.addBoundary(contentType);
-        return target.request().post(
+        return target.request()
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .post(
                 Entity.entity(multiPart, contentType), returnType);
     }
 
@@ -636,7 +696,9 @@ public class JerseyRestClient {
      */
     public <T> T post(String path, Object object, Class<T> returnType) {
         WebTarget target = buildTarget(path, null);
-        return target.request().post(Entity.entity(object, MediaType.APPLICATION_JSON), returnType);
+        return target.request()
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .post(Entity.entity(object, MediaType.APPLICATION_JSON), returnType);
     }
 
     /**
@@ -649,7 +711,9 @@ public class JerseyRestClient {
      */
     public <T> T put(String path, Object object, Class<T> returnType) {
         WebTarget target = buildTarget(path, null);
-        return target.request().put(Entity.entity(object, MediaType.APPLICATION_JSON), returnType);
+        return target.request()
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .put(Entity.entity(object, MediaType.APPLICATION_JSON), returnType);
     }
 
     /**
@@ -662,7 +726,9 @@ public class JerseyRestClient {
      */
     public <T> T delete(String path, Map<String, Object> params, Class<T> returnType) {
         WebTarget target = buildTarget(path, params);
-        return target.request().delete(returnType);
+        return target.request()
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .delete(returnType);
     }
 
 
@@ -681,7 +747,8 @@ public class JerseyRestClient {
 
         Invocation.Builder builder = target.request(MediaType.APPLICATION_JSON_TYPE)
                 .headers(headers)
-                .accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE);
+                .accept(MediaType.APPLICATION_JSON_TYPE, MediaType.APPLICATION_XML_TYPE)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN);
 
         return builder.delete(clazz);
     }
@@ -696,7 +763,9 @@ public class JerseyRestClient {
      */
     public <T> T postForm(String path, Form form, Class<T> returnType) {
         WebTarget target = buildTarget(path, null);
-        return target.request().post(Entity.entity(form, MediaType.APPLICATION_FORM_URLENCODED_TYPE), returnType);
+        return target.request()
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .post(Entity.entity(form, MediaType.APPLICATION_FORM_URLENCODED_TYPE), returnType);
     }
 
     /**
@@ -709,11 +778,14 @@ public class JerseyRestClient {
      */
     public <T> Future<T> postAsync(String path, Object object, Class<T> returnType) {
         WebTarget target = buildTarget(path, null);
-        return target.request().async().post(Entity.entity(object, MediaType.APPLICATION_JSON), returnType);
+        return target.request()
+        .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+        .async()
+        .post(Entity.entity(object, MediaType.APPLICATION_JSON), returnType);
     }
 
     /**
-     * If a request doesn't like the accepted type (i.e. its coded for TEXT instead of JSON, try to resolve the JSON by getting the JSON string
+     * If a request doesn"t like the accepted type (i.e. its coded for TEXT instead of JSON, try to resolve the JSON by getting the JSON string
      * This can be called in the Exception of a particular GET request which will attempt to resolve the correct object from the Response string.
      *
      * @param builder the Invocation.Builder
@@ -726,7 +798,9 @@ public class JerseyRestClient {
         T obj = null;
         try {
             //the response didnt link getting data in JSON.. attempt to get it in TEXT and convert to JSON
-            String jsonString = builder.accept(MediaType.TEXT_PLAIN_TYPE).get(String.class);
+            String jsonString = builder.accept(MediaType.TEXT_PLAIN_TYPE)
+            .header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN)
+            .get(String.class);
             if (StringUtils.isNotBlank(jsonString)) {
                 try {
                     obj = objectMapper.readValue(jsonString, clazz);
@@ -743,7 +817,7 @@ public class JerseyRestClient {
     }
 
     /**
-     * If a request doesn't like the accepted type (i.e. its coded for TEXT instead of JSON, try to resolve the JSON by getting the JSON string
+     * If a request doesn"t like the accepted type (i.e. its coded for TEXT instead of JSON, try to resolve the JSON by getting the JSON string
      * This can be called in the Exception of a particular GET request which will attempt to resolve the correct object from the Response string.
      *
      * @param target the WebTarget
@@ -753,7 +827,7 @@ public class JerseyRestClient {
      * @see JerseyRestClient#getFromPathString(String, Class)
      */
     private <T> T handleNotAcceptableGetRequestJsonException(WebTarget target, Class<T> clazz) {
-        return handleNotAcceptableGetRequestJsonException(target.request(MediaType.APPLICATION_JSON_TYPE), clazz);
+        return handleNotAcceptableGetRequestJsonException(target.request(MediaType.APPLICATION_JSON_TYPE).header(HttpHeaders.AUTHORIZATION, "Bearer " + USR_ACCESS_TOKEN), clazz);
     }
 
 

@@ -211,17 +211,21 @@ public class ProvenanceEventFeedUtil {
      */
     public boolean isRegisteredWithFeedManager(ProvenanceEventRecordDTO event) {
 
+        log.info("TENANTS - IS registered with feed manager?");
         String feedName = event.getFeedName();
         if (StringUtils.isNotBlank(feedName)) {
             OpsManagerFeed feed = opsManagerFeedProvider.findByNameWithoutAcl(feedName);
             if (feed == null || OpsManagerFeed.NULL_FEED.equals(feed)) {
                 log.debug("Not processing operational metadata for feed {} , event {} because it is not registered in feed manager ", feedName, event);
                 // opsManagerFeedCache.invalidateFeed(feedName);
+                log.info("TENANTS - NO IT IS NOT registered with feed manager?");
                 return false;
             } else {
+                log.info("TENANTS - YES IT IS registered with feed manager?");
                 return true;
             }
         }
+        log.info("TENANTS - NO IT IS NOT registered with feed manager?");
         return false;
     }
 

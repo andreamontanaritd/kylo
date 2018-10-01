@@ -60,6 +60,23 @@ import java.util.stream.Collectors;
 import javax.annotation.PostConstruct;
 import javax.inject.Inject;
 
+import org.springframework.util.ResourceUtils;
+import com.thinkbiganalytics.nifi.provenance.model.stats.AggregatedFeedProcessorStatisticsHolder;
+import org.apache.activemq.ActiveMQConnectionFactory;
+import java.io.Serializable;
+import javax.jms.Connection;
+import javax.jms.DeliveryMode;
+import javax.jms.Destination;
+import javax.jms.Message;
+import javax.jms.MessageProducer;
+import javax.jms.Session;
+import com.thinkbiganalytics.nifi.provenance.model.util.GroupedStatsUtil;
+import org.json.*;
+import javax.json.*;
+import java.net.*;
+import java.io.*;
+import java.util.Arrays;
+
 /**
  * JMS Listener for NiFi Provenance Events.
  */
@@ -135,6 +152,11 @@ public class ProvenanceEventReceiver implements FailedStepExecutionListener {
      * When processing each event the LockAcquisitionException is caught and a retry attempt is done, retrying to process the event this amount of times before giving up.
      */
     private int lockAcquisitionRetryAmount = 4;
+
+
+    private Connection connection;
+    private Session session;
+    private MessageProducer producer;
 
     /**
      * default constructor
@@ -216,16 +238,21 @@ public class ProvenanceEventReceiver implements FailedStepExecutionListener {
     @JmsListener(id = JMS_LISTENER_ID, destination = Queues.FEED_MANAGER_QUEUE, containerFactory = JmsConstants.QUEUE_LISTENER_CONTAINER_FACTORY, concurrency = "3-10")
     public void receiveEvents(ProvenanceEventRecordDTOHolder events) {
         log.info("About to {} batch: {},  {} events from the {} queue ", (events instanceof RetryProvenanceEventRecordHolder) ? "RETRY" : "process", events.getBatchId(), events.getEvents().size(),
-                 Queues.FEED_MANAGER_QUEUE);
+        Queues.FEED_MANAGER_QUEUE);
         if (readyToProcess(events)) {
 
-            if (ensureValidRetryAttempt(events)) {
+            events.getEvents().stream().forEach(event -> {
+                log.info("TENANTS Print Events " + event.toString());
+            });
+
+            multiplexEvent(events);
+            if (false /*ensureValidRetryAttempt(events)*/) {
                 List<ProvenanceEventRecordDTO> unregisteredEvents = new ArrayList<>();
 
                 events.getEvents().stream().map(event -> provenanceEventFeedUtil.enrichEventWithFeedInformation(event)).forEach(event -> {
-
+                    //multiplexEvent(event);
                     if (provenanceEventFeedUtil.isRegisteredWithFeedManager(event)) {
-                        processEvent(event, 0);
+                        // processEvent(event, 0);
                     } else {
                         unregisteredEvents.add(event);
                     }
@@ -248,6 +275,163 @@ public class ProvenanceEventReceiver implements FailedStepExecutionListener {
             log.info("NiFi is not up yet. Sending batch {} back to JMS for later dequeue ", events.getBatchId());
             throw new JmsProcessingException("Unable to process events.  NiFi is either not up, or there is an error trying to populate the Kylo NiFi Flow Cache. ");
         }
+    }
+    private void multiplexEvent(ProvenanceEventRecordDTOHolder e) {
+    //private void multiplexEvent(ProvenanceEventRecordDTO e) {
+        log.info("DEV  - LOGGING EVENTS JMS    ");
+        log.info(e.toString());  
+
+        boolean proceed = true;
+        
+        List<String> processorA = new ArrayList<>();
+        List<String> processorB = new ArrayList<>();
+
+        BufferedReader br = null;
+        FileReader fr = null;
+        BufferedReader br1 = null;
+        FileReader fr1 = null;
+        try {
+
+            fr = new FileReader("/opt/json/usera.txt");
+            br = new BufferedReader(fr);
+            String sCurrentLine;
+            while ((sCurrentLine = br.readLine()) != null) {
+                // System.out.println(sCurrentLine);
+                processorA.add(sCurrentLine);
+            }
+            } catch (IOException e2) {
+
+                e2.printStackTrace();
+                log.info(e2.toString());
+                proceed = false;
+            } finally {
+
+            try {
+
+                if (br != null)
+                    br.close();
+
+                if (fr != null)
+                    fr.close();
+
+            } catch (IOException ex2) {
+
+                ex2.printStackTrace();
+                log.info(ex2.toString());
+                proceed = false;
+            }
+
+        }
+
+        try {
+
+            fr1 = new FileReader("/opt/json/userb.txt");
+            br1 = new BufferedReader(fr1);
+            String sCurrentLine1;
+            while ((sCurrentLine1 = br1.readLine()) != null) {
+                // System.out.println(sCurrentLine);
+                processorB.add(sCurrentLine1);
+            }
+        } catch (IOException e1) {
+
+            e1.printStackTrace();
+            log.info(e1.toString());
+            proceed = false;
+
+        } finally {
+
+            try {
+
+                if (br1 != null)
+                    br1.close();
+
+                if (fr1 != null)
+                    fr1.close();
+
+            } catch (IOException ex1) {
+
+                ex1.printStackTrace();
+                log.info(ex1.toString());
+                proceed = false;
+            }
+
+        }
+
+            String KYLO_BATCH_EVENT_QUEUE = "thinkbig.feed-manager-a";
+            /*
+            if (processorA.contains(e.getComponentId())) {
+
+                log.info("These events are from user A");
+                KYLO_BATCH_EVENT_QUEUE = "thinkbig.feed-manager-a";
+            } else if (processorB.contains(e.getComponentId())) {
+                log.info("These events are from user B");
+                // KYLO_BATCH_EVENT_QUEUE = "thinkbig.feed-manager-b";
+                KYLO_BATCH_EVENT_QUEUE = "thinkbig.feed-manager-a";
+            } else {
+                // proceed = false;
+                KYLO_BATCH_EVENT_QUEUE = "thinkbig.feed-manager-a";
+                log.info("THIS EVENT IS NOT FROM OUR TENANTS" + e.toString());
+            }
+            */
+
+            if (proceed) {
+
+                ProvenanceEventRecordDTOHolder eventRecordDTOHolder = new ProvenanceEventRecordDTOHolder();
+                List<ProvenanceEventRecordDTO> batchEvents = new ArrayList<>();
+                //batchEvents.add(e);
+                //eventRecordDTOHolder.setEvents(batchEvents);
+                // WRITE NEW QUEUE
+                String jmsUrl = "tcp://localhost:61616";
+
+                log.info("Sending {} EVENTS to NEW JMS ", e);
+                try {
+                    Connection connection = getOrCreateJmsConnection(jmsUrl);
+                    Session session = getOrCreateSession(connection);
+                    MessageProducer producer = getOrCreateProducer(session, KYLO_BATCH_EVENT_QUEUE);
+                    Message m = session.createObjectMessage(e);
+                    producer.send(m);
+                } catch (Exception ex) {
+                    log.info("Error sending to NEW JMS");
+                    log.info(ex.toString());
+                    ex.printStackTrace();
+                }
+                
+                log.info("EVENTS successfully sent to NEW JMS");
+        }
+    }
+
+    private Connection getOrCreateJmsConnection(String url) throws Exception {
+        if(connection == null) {
+            // Create a ConnectionFactory
+            ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(url);
+
+            // Create a Connection
+            Connection connection = connectionFactory.createConnection();
+            connection.start();
+            this.connection = connection;
+        }
+        return connection;
+    }
+
+    private Session getOrCreateSession(Connection connection) throws Exception {
+        if(session == null) {
+            // Create a Session
+            Session session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+            this.session = session;
+        }
+        return session;
+    }
+
+    private MessageProducer getOrCreateProducer(Session session, String queueName) throws Exception{
+
+        if(producer == null) {
+            // Create the destination (Topic or Queue)
+            Destination destination = session.createQueue(queueName);
+            MessageProducer producer = session.createProducer(destination);
+            producer.setDeliveryMode(DeliveryMode.NON_PERSISTENT);
+            this.producer = producer;
+        }
+        return producer;
     }
 
     /**

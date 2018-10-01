@@ -24,7 +24,7 @@ import com.amazon.sqs.javamessaging.AmazonSQSMessagingClientWrapper;
 import com.amazon.sqs.javamessaging.SQSConnection;
 import com.amazon.sqs.javamessaging.SQSConnectionFactory;
 import com.thinkbiganalytics.jms.JmsService;
-import com.thinkbiganalytics.jms.Queues;
+import com.thinkbiganalytics.jms.QueuesMod;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,8 +90,8 @@ public class SqsService implements JmsService {
     @PostConstruct
     void preCreateQueues() {
         LOG.info("Pre-creating Queues");
-        getQueue(Queues.FEED_MANAGER_QUEUE);
-        getQueue(Queues.PROVENANCE_EVENT_STATS_QUEUE);
+        getQueue(QueuesMod.FEED_MANAGER_QUEUE);
+        getQueue(QueuesMod.PROVENANCE_EVENT_STATS_QUEUE);
     }
 
     @Override
