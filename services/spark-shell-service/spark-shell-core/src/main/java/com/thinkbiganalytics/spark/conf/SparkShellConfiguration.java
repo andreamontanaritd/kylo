@@ -107,6 +107,14 @@ public class SparkShellConfiguration {
         }
     }
 
+<<<<<<< HEAD
+=======
+    @Bean
+    @Profile("kyloUpgrade")
+    public SparkShellProcessManager processManagerForUpgrade() {
+        return new ServerProcessManager(new SparkShellProperties());
+    }
+>>>>>>> 5835af5d00a7121802c62a68790dd5522c662ca1
 
     /**
      * Creates a REST client for communicating with the Spark Shell processes.

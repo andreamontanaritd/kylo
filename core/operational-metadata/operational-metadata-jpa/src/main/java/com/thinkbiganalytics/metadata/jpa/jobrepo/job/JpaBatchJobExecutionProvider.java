@@ -538,6 +538,7 @@ public class JpaBatchJobExecutionProvider extends QueryDslPagingSupport<JpaBatch
         //if the attrs coming in change the type to a CHECK job then update the entity
         boolean updatedJobType = updateJobType(jobExecution, event);
 
+        log.info("ANDREA - EVENT " + event.toString());
         boolean save = isNew || updatedJobType;
         if (event.isFinalJobEvent()) {
             finishJob(event, jobExecution);

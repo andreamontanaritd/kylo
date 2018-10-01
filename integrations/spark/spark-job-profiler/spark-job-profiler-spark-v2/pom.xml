@@ -4,11 +4,19 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+<<<<<<< HEAD
     <parent>
         <groupId>com.thinkbiganalytics.kylo.integrations</groupId>
         <artifactId>kylo-spark-job-profiler</artifactId>
         <version>0.9.2-SNAPSHOT</version>
     </parent>
+=======
+  <parent>
+    <groupId>com.thinkbiganalytics.kylo.integrations</groupId>
+    <artifactId>kylo-spark-job-profiler</artifactId>
+    <version>0.9.1.2-SNAPSHOT</version>
+  </parent>
+>>>>>>> 5835af5d00a7121802c62a68790dd5522c662ca1
 
     <artifactId>kylo-spark-job-profiler-spark-v2</artifactId>
 

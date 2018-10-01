@@ -26,9 +26,14 @@ import com.thinkbiganalytics.kerberos.KerberosTicketConfiguration;
 
 import org.junit.Assert;
 import org.junit.Test;
+<<<<<<< HEAD
 
 import org.mockito.Mockito;
 
+=======
+import org.mockito.Mockito;
+
+>>>>>>> 5835af5d00a7121802c62a68790dd5522c662ca1
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
